@@ -2,7 +2,6 @@
 session_start();
 
 // ── セッション変数の初期化 ──
-// 新規セッションや別端末アクセス時にも必ず配列として存在させる
 if (!isset($_SESSION['chat']) || !is_array($_SESSION['chat'])) {
     $_SESSION['chat'] = [];
 }
@@ -14,6 +13,8 @@ if (!isset($_SESSION['topics']) || !is_array($_SESSION['topics'])) {
 if (isset($_GET['reset'])) {
     $_SESSION['chat'] = [];
     $_SESSION['topics'] = [];
+    // ログをファイルにも残しておきたい場合はリセット時にも行うが、
+    // 通常はユーザーのやり取りだけを消去したいのでここではファイル追記しない。
     header("Location: index.php");
     exit;
 }
@@ -105,6 +106,17 @@ function categorize(string $input): string {
     return 'other';
 }
 
+// ── ファイル書き込み用ヘルパー関数 ──
+function appendToLog(string $user, string $bot): void {
+    // タイムゾーンを日本時間にしておく
+    date_default_timezone_set('Asia/Tokyo');
+    $timestamp = date('Y-m-d H:i:s');
+    // 1行にまとめる
+    $line = "[{$timestamp}] USER: {$user} → BOT: {$bot}\n";
+    // chat_log.txt に追記、排他ロック付き
+    file_put_contents(__DIR__ . '/chat_log.txt', $line, FILE_APPEND | LOCK_EX);
+}
+
 // ── 応答生成 ──
 function generateReply(string $input): string {
     // 1) キーワード抽出 → セッションに追加
@@ -115,13 +127,13 @@ function generateReply(string $input): string {
         }
     }
 
-    // 2) カテゴリ判定
+    // 2) カテゴリを判定
     $category = categorize($input);
 
-    // 3) パターン取得
+    // 3) 応答パターンを取得
     $patterns = getResponsePatterns();
 
-    // 4) カテゴリごとのランダム応答
+    // 4) カテゴリ別のランダム応答
     if ($category !== 'other' && isset($patterns[$category])) {
         $pool = $patterns[$category];
         return $pool[array_rand($pool)];
@@ -140,32 +152,36 @@ function generateReply(string $input): string {
     return $template;
 }
 
-// ── “考え中”演出 ──
+// ── “考え中…” 演出 ──
 if ($input !== '') {
     echo "<!DOCTYPE html>\n<html lang=\"ja\"><head><meta charset=\"UTF-8\"><title>PHPチャットボット</title></head><body>";
     echo "<p> ボット: …考え中…</p>";
     session_write_close();
-    usleep(500000);
+    usleep(500000); // 0.5秒の遅延
     session_start();
 }
 
-// ── メイン処理 ──
+// ── メイン処理：応答を作って、セッションとファイルに保存 ──
 if ($input !== '') {
     $reply = generateReply($input);
+    // セッションに保存
     $_SESSION['chat'][] = ['user' => $input, 'bot' => $reply];
+    // 追加: 全端末共通ログファイルにも追記
+    appendToLog($input, $reply);
 }
+
 ?>
 
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>PHP製 高機能チャットボット(笑)</title>
+    <title>PHP製 高機能チャットボット</title>
 </head>
 <body>
-<h2> PHP製 ChatGPTっぽいチャットボットだよ</h2>
+<h2> PHP製 ChatGPTっぽいチャットボット</h2>
 
-<!-- 会話履歴 -->
+<!-- 会話履歴（セッションベース） -->
 <?php if (!empty($_SESSION['chat'])): ?>
     <?php foreach ($_SESSION['chat'] as $entry): ?>
         <p><strong> あなた:</strong> <?= nl2br(htmlspecialchars($entry['user'], ENT_QUOTES)) ?></p>
@@ -173,12 +189,12 @@ if ($input !== '') {
         <hr>
     <?php endforeach; ?>
 <?php else: ?>
-    <p>はじめまして！何でも気軽に話しかけてみてくださいね。</p>
+    <p>はじめまして！何でも気軽に話しかけてみてください。</p>
 <?php endif; ?>
 
 <!-- 入力フォーム -->
 <form method="POST" style="margin-top: 20px;">
-    <input type="text" name="message" placeholder="話しかけてね" style="width: 300px;" required autofocus>
+    <input type="text" name="message" placeholder="話しかけてください" style="width: 300px;" required autofocus>
     <button type="submit">送信</button>
 </form>
 
@@ -186,5 +202,12 @@ if ($input !== '') {
 <p style="margin-top: 10px;">
     <a href="?reset=1"> 会話をリセット</a>
 </p>
+
+<!-- 全体ログを確認したい場合のリンク（任意）-->
+<!--
+<p style="margin-top: 10px;">
+    <a href="chat_log.txt" target="_blank"> 全会話ログを開く</a>
+</p>
+-->
 </body>
 </html>
