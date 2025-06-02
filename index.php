@@ -2,7 +2,6 @@
 session_start();
 
 // ── セッション変数の初期化 ──
-// 新規セッションや別端末アクセス時にも必ず配列として存在させる
 if (!isset($_SESSION['chat']) || !is_array($_SESSION['chat'])) {
     $_SESSION['chat'] = [];
 }
@@ -105,9 +104,16 @@ function categorize(string $input): string {
     return 'other';
 }
 
+// ── ファイル書き込み用ヘルパー関数 ──
+function appendToLog(string $user, string $bot): void {
+    date_default_timezone_set('Asia/Tokyo');
+    $timestamp = date('Y-m-d H:i:s');
+    $line = "[{$timestamp}] USER: {$user} → BOT: {$bot}\n";
+    file_put_contents(__DIR__ . '/chat_log.txt', $line, FILE_APPEND | LOCK_EX);
+}
+
 // ── 応答生成 ──
 function generateReply(string $input): string {
-    // 1) キーワード抽出 → セッションに追加
     $keywords = extractKeywords($input);
     foreach ($keywords as $kw) {
         if (!in_array($kw, $_SESSION['topics'], true)) {
@@ -115,19 +121,14 @@ function generateReply(string $input): string {
         }
     }
 
-    // 2) カテゴリ判定
     $category = categorize($input);
-
-    // 3) パターン取得
     $patterns = getResponsePatterns();
 
-    // 4) カテゴリごとのランダム応答
     if ($category !== 'other' && isset($patterns[$category])) {
         $pool = $patterns[$category];
         return $pool[array_rand($pool)];
     }
 
-    // 5) その他カテゴリ（default）
     $pool = $patterns['default'];
     $template = $pool[array_rand($pool)];
     if (mb_strpos($template, '{INPUT}') !== false) {
@@ -140,7 +141,7 @@ function generateReply(string $input): string {
     return $template;
 }
 
-// ── “考え中”演出 ──
+// ── “考え中…” 演出 ──
 if ($input !== '') {
     echo "<!DOCTYPE html>\n<html lang=\"ja\"><head><meta charset=\"UTF-8\"><title>PHPチャットボット</title></head><body>";
     echo "<p> ボット: …考え中…</p>";
@@ -149,23 +150,39 @@ if ($input !== '') {
     session_start();
 }
 
-// ── メイン処理 ──
+// ── メイン処理：応答を作って、セッションとファイルに保存 ──
 if ($input !== '') {
     $reply = generateReply($input);
     $_SESSION['chat'][] = ['user' => $input, 'bot' => $reply];
+    appendToLog($input, $reply);
 }
+
 ?>
 
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>PHP製 高機能チャットボット(笑)</title>
+    <title>PHP製 高機能チャットボット</title>
 </head>
 <body>
-<h2> PHP製 ChatGPTっぽいチャットボットだよ</h2>
+<h2> PHP製 ChatGPTっぽいチャットボット</h2>
 
-<!-- 会話履歴 -->
+<!-- ここから：うまく使うための具体的なコツ（箇条書き） -->
+<div style="background: #f9f9f9; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 20px;">
+    <p><strong>うまく使うための具体的なコツ：</strong></p>
+    <ul>
+        <li>まずは「こんにちは」「やあ」などの挨拶から始めるとスムーズです。</li>
+        <li>文末に「？」をつけて質問すると、より適切な返答が返ってきます。</li>
+        <li>「映画」「音楽」「PHP」「AI」などのキーワードを含めると、会話が深まりやすくなります。</li>
+        <li>「疲れた」「元気？」など感情を含む内容を送ると共感的な返事が返ってきます。</li>
+        <li>会話が行き詰まったらキーワードを明示的に入れて、トピックを切り替えてみましょう。</li>
+        <li>「 会話をリセット」をクリックすると、会話履歴とトピックがクリアされます。</li>
+    </ul>
+</div>
+<!-- ここまで：うまく使うための具体的なコツ -->
+
+<!-- 会話履歴（セッションベース） -->
 <?php if (!empty($_SESSION['chat'])): ?>
     <?php foreach ($_SESSION['chat'] as $entry): ?>
         <p><strong> あなた:</strong> <?= nl2br(htmlspecialchars($entry['user'], ENT_QUOTES)) ?></p>
@@ -173,12 +190,12 @@ if ($input !== '') {
         <hr>
     <?php endforeach; ?>
 <?php else: ?>
-    <p>はじめまして！何でも気軽に話しかけてみてくださいね。</p>
+    <p>はじめまして！何でも気軽に話しかけてみてください。</p>
 <?php endif; ?>
 
 <!-- 入力フォーム -->
 <form method="POST" style="margin-top: 20px;">
-    <input type="text" name="message" placeholder="話しかけてね" style="width: 300px;" required autofocus>
+    <input type="text" name="message" placeholder="話しかけてください" style="width: 300px;" required autofocus>
     <button type="submit">送信</button>
 </form>
 
